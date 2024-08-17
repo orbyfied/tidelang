@@ -6,6 +6,7 @@ fn createModule(alloc: std.mem.Allocator, b: *std.Build, name: []const u8, targe
 
     // Create module
     const mod = b.addModule(name, .{ .root_source_file = rootSource, .target = target });
+    mod.addImport(name, mod);
 
     // Add static library build
     const staticLibOptions = std.Build.StaticLibraryOptions{ .name = libName, .root_source_file = rootSource, .target = target, .optimize = optimize };

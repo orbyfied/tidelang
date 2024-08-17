@@ -3,30 +3,34 @@ const tide = @import("tidelang");
 
 /// All stack value types
 pub const Type = enum {
-    VOID, // An empty slot in the stack which is to be ignored
-    BOOL, // A true or false value (bool)
-    INT64, // A signed 64 bit integer (long)
-    INT32, // A signed 32 bit integer (int)
-    FLOAT64, // An IEEE 754 binary64 floating point number
-    FLOAT32, // An IEEE 754 binary32 floating point number
-    REFERENCE, // An object reference
+    Void, // An empty slot in the stack which is to be ignored
+    Int64, // A signed 64 bit integer (long)
+    Int32, // A signed 32 bit integer (int)
+    Float64, // An IEEE 754 binary64 floating point number
+    Float32, // An IEEE 754 binary32 floating point number
+    Reference, // An object reference
 };
 
 /// A value on the VM stack.
 /// Stack values consist of a one byte type tag, then a 64-bit value
 pub const Value = union(Type) {
-    asU64: u64,
-    asU32: u32,
-    asI64: i64,
-    asI32: i32,
-    asPtr: *anyopaque,
+    Void: u64,
+    Int64: i64,
+    Int32: i32,
+    Float64: f64,
+    Float32: f32,
+    Reference: *anyopaque,
 };
 
 /// A frame on the value stack.
 pub const Frame = struct {
     callSite: *tide.runtime.CallSite, // The called method/closure/function
-    startIndex: usize = 0, // The start index of the locals of the frame on the value stack
     reservedLocals: usize, // The amount of local variables before the start index
+
+    code: *tide.common.Code, // The current chunk of code being executed
+    pc: usize, // The current program counter/instruction of execution
+
+    startIndex: usize = 0, // The start index of the locals of the frame on the value stack
     stackStartIndex: usize = 0, // The start index of the operand stack, after the locals
     endIndex: usize = 0, // The end index of the frame on the value stack, or 0 if not closed [Inclusive]
 };
@@ -49,9 +53,9 @@ frames: []Frame,
 /// The index of the current stack frame
 frameIndex: isize,
 
-pub fn fixed(allocator: std.mem.Allocator, maxValues: usize, maxFrames: usize) Self {
-    const dataArray: []Value = allocator.alloc(Value, maxValues);
-    const frames: []Frame = allocator.alloc(Frame, maxFrames);
+pub fn fixed(allocator: std.mem.Allocator, maxValues: usize, maxFrames: usize) !Self {
+    const dataArray: []Value = try allocator.alloc(Value, maxValues);
+    const frames: []Frame = try allocator.alloc(Frame, maxFrames);
     return .{ .data = dataArray, .ptr = -1, .frames = frames, .frameIndex = -1 };
 }
 
@@ -61,23 +65,24 @@ pub fn pushFrame(self: *Self, frame: Frame) void {
     // handle last frame
     self.ptr += 1;
     if (self.inFrame()) {
-        self.currentFrame().endIndex = self.ptr;
+        self.currentFrame().endIndex = @intCast(self.ptr);
     }
-
-    // set up value stack
-    self.ensureRemainingCapacity(frame.reservedLocals);
-    frame.startIndex = self.ptr;
-    frame.stackStartIndex = frame.startIndex + frame.reservedLocals;
-    frame.endIndex = 0;
 
     // push frame info
     self.frameIndex += 1;
-    self.frames[self.frameIndex] = frame;
+    var f: *Frame = &self.frames[@intCast(self.frameIndex)];
+    f.* = frame;
+
+    // set up value stack
+    self.ensureRemainingCapacity(frame.reservedLocals);
+    f.startIndex = @intCast(self.ptr);
+    f.stackStartIndex = frame.startIndex + frame.reservedLocals;
+    f.endIndex = 0;
 }
 
 pub fn popFrame(self: *Self) Frame {
     // pop frame info
-    const frame = self.frames[self.frameIndex];
+    const frame = self.frames[@intCast(self.frameIndex)];
     self.frameIndex -= 1;
 
     // restore value stack
@@ -90,7 +95,8 @@ pub fn popFrame(self: *Self) Frame {
 }
 
 inline fn hasCapacityFor(self: *Self, amount: usize) bool {
-    return self.ptr + amount < self.data.len;
+    const p: usize = @bitCast(self.ptr);
+    return p + amount < self.data.len;
 }
 
 inline fn ensureRemainingCapacity(self: *Self, extra: usize) void {
@@ -113,7 +119,8 @@ inline fn ensureHas(self: *Self, amount: usize) void {
 
 inline fn relativePointer(self: *Self) isize {
     if (self.inFrame()) {
-        return self.ptr - self.currentFrame().stackStartIndex;
+        const ssi: isize = @intCast(self.currentFrame().stackStartIndex);
+        return self.ptr - ssi;
     } else {
         return self.ptr;
     }
@@ -136,12 +143,17 @@ pub inline fn getFrame(self: *Self, index: usize) *Frame {
 }
 
 pub inline fn currentFrame(self: *Self) *Frame {
-    return &self.frames[self.frameIndex];
+    return &self.frames[@intCast(self.frameIndex)];
 }
 
 pub inline fn getLocal(self: *Self, index: usize) Value {
     const frame = self.currentFrame();
     return self.data[frame.startIndex + index];
+}
+
+pub inline fn setLocal(self: *Self, index: usize, val: Value) void {
+    const frame = self.currentFrame();
+    self.data[frame.startIndex + index] = val;
 }
 
 pub inline fn push(self: *Self, val: Value) void {
@@ -152,22 +164,30 @@ pub inline fn push(self: *Self, val: Value) void {
 
 pub inline fn pop(self: *Self) Value {
     self.ensureNotEmpty();
-    const v = self.data[self.ptr];
+    const v = self.data[@intCast(self.ptr)];
     self.ptr -= 1;
     return v;
 }
 
 pub inline fn peek(self: *Self) Value {
     self.ensureNotEmpty();
-    return self.data[self.ptr];
+    return self.data[@intCast(self.ptr)];
+}
+
+pub inline fn peekOpt(self: *Self) ?Value {
+    if (!self.isEmpty()) {
+        return self.data[@intCast(self.ptr)];
+    }
+
+    return null;
 }
 
 pub inline fn at(self: *Self, off: isize) Value {
     // todo: bounds
     if (off < 0) {
-        return self.data[self.ptr + off + 1]; // +1 because otherwise there is no way to reference the top of the stack
+        return self.data[@intCast(self.ptr + off + 1)]; // +1 because otherwise there is no way to reference the top of the stack
     } else {
-        return self.data[off];
+        return self.data[@intCast(off)];
     }
 }
 
@@ -178,14 +198,14 @@ pub inline fn dupT(self: *Self) void {
 
 pub inline fn dupT2(self: *Self) void {
     self.ensureRemainingCapacity(2);
-    self.data[self.ptr + 1] = self.data[self.ptr - 1];
-    self.data[self.ptr + 2] = self.data[self.ptr];
+    self.data[@intCast(self.ptr + 1)] = self.data[@intCast(self.ptr - 1)];
+    self.data[@intCast(self.ptr + 2)] = self.data[@intCast(self.ptr)];
     self.ptr += 2;
 }
 
 pub inline fn swapT2(self: *Self) void {
     self.ensureHas(2);
     const top = self.data[self.ptr];
-    self.data[self.ptr] = self.data[self.ptr - 1];
-    self.data[self.ptr - 1] = top;
+    self.data[@intCast(self.ptr)] = self.data[@intCast(self.ptr - 1)];
+    self.data[@intCast(self.ptr - 1)] = top;
 }
