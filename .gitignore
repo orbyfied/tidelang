@@ -1,0 +1,7 @@
+/.idea
+/build/
+/dest/
+/run/
+/zig-out/
+/secrets.json
+/.zig-cache
