@@ -1,0 +1,2 @@
+# tidelang
+Trying Zig
