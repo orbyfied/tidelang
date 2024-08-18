@@ -13,7 +13,7 @@ pub const String = struct {
     /// Whether the data array is terminated with a null value
     terminated: bool,
 
-    pub fn new(alloc: std.mem.Allocator, utf8Data: []const u8) *String {
+    pub fn new(alloc: std.mem.Allocator, utf8Data: []const u8) !*String {
         var str = try alloc.create(String);
         str.data = utf8Data;
         str.len = std.unicode.calcUtf16LeLen(utf8Data) catch 0;

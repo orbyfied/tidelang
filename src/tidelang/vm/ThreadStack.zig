@@ -2,8 +2,12 @@ const std = @import("std");
 const tide = @import("tidelang");
 
 /// All stack value types
-pub const Type = enum {
-    Void, // An empty slot in the stack which is to be ignored
+pub const ValueType = enum(u8) {
+    Void = 0, // An empty slot in the stack which is to be ignored
+    Bool,
+    Byte,
+    Char,
+    Short,
     Int64, // A signed 64 bit integer (long)
     Int32, // A signed 32 bit integer (int)
     Float64, // An IEEE 754 binary64 floating point number
@@ -13,26 +17,19 @@ pub const Type = enum {
 
 /// A value on the VM stack.
 /// Stack values consist of a one byte type tag, then a 64-bit value
-pub const Value = union(Type) {
-    Void: u64,
-    Int64: i64,
-    Int32: i32,
-    Float64: f64,
-    Float32: f32,
-    Reference: *anyopaque,
-};
+pub const Value = packed struct { type: ValueType, value: packed union { asU64: u64, asU32: u32, asI64: i64, asI32: i32, asF64: f64, asF32: f32, asPtr: *anyopaque, asU8: u8 } };
 
 /// A frame on the value stack.
 pub const Frame = struct {
-    callSite: *tide.runtime.CallSite, // The called method/closure/function
-    reservedLocals: usize, // The amount of local variables before the start index
+    callSite: *const tide.runtime.CallSite, // The called method/closure/function
+    reservedLocals: u16, // The amount of local variables before the start index
 
     code: *tide.common.Code, // The current chunk of code being executed
     pc: usize, // The current program counter/instruction of execution
 
-    startIndex: usize = 0, // The start index of the locals of the frame on the value stack
-    stackStartIndex: usize = 0, // The start index of the operand stack, after the locals
-    endIndex: usize = 0, // The end index of the frame on the value stack, or 0 if not closed [Inclusive]
+    startIndex: u32 = 0, // The start index of the locals of the frame on the value stack
+    stackStartIndex: u32 = 0, // The start index of the operand stack, after the locals
+    endIndex: u32 = 0, // The end index of the frame on the value stack, or 0 if not closed [Inclusive]
 };
 
 //
@@ -78,6 +75,10 @@ pub fn pushFrame(self: *Self, frame: Frame) void {
     f.startIndex = @intCast(self.ptr);
     f.stackStartIndex = frame.startIndex + frame.reservedLocals;
     f.endIndex = 0;
+    self.ptr = f.stackStartIndex - 1;
+
+    // empty locals
+    @memset(self.data[f.startIndex..f.stackStartIndex], Value{ .type = ValueType.Void, .value = .{ .asU8 = 0 } });
 }
 
 pub fn popFrame(self: *Self) Frame {
@@ -159,7 +160,7 @@ pub inline fn setLocal(self: *Self, index: usize, val: Value) void {
 pub inline fn push(self: *Self, val: Value) void {
     self.ensureRemainingCapacity(1);
     self.ptr += 1;
-    self.data[self.ptr] = val;
+    self.data[@intCast(self.ptr)] = val;
 }
 
 pub inline fn pop(self: *Self) Value {
@@ -205,7 +206,7 @@ pub inline fn dupT2(self: *Self) void {
 
 pub inline fn swapT2(self: *Self) void {
     self.ensureHas(2);
-    const top = self.data[self.ptr];
+    const top = self.data[@intCast(self.ptr)];
     self.data[@intCast(self.ptr)] = self.data[@intCast(self.ptr - 1)];
     self.data[@intCast(self.ptr - 1)] = top;
 }
