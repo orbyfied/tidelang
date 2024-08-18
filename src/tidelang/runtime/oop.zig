@@ -1,15 +1,19 @@
 const std = @import("std");
 const tide = @import("tidelang");
 
+pub const intrinsic = @import("intrinsic.zig");
+
 /// Represents a registered class
 pub const Class = struct {
     objectHeader: ObjectHeader, // The object header so this struct can be interpreted as a runtime object
 
     /// The full name of this class
-    name: tide.oop.ObjRef(tide.String),
+    name: *tide.oop.intrinsic.StringObj,
 };
 
 pub const ObjectFlags = packed struct {
+    alive: bool = true, // Whether this object is valid
+    managed: bool = false, // Whether the object should be tracked by the GC
     persistent: bool = false, // Whether to exclude the object from garbage collection
 };
 

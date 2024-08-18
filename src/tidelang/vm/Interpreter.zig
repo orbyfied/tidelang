@@ -19,15 +19,16 @@ const Interpreter = @This();
 vm: *vm.VM,
 thread: *vm.Thread,
 
-pub fn beginExecution(self: *Interpreter, callSite: *const tide.runtime.CallSite) InterpreterResult {
+pub fn beginExecution(self: *Interpreter, callSite: *const tide.runtime.CallSite) !InterpreterResult {
     const frame = vm.ThreadStack.Frame{ .callSite = callSite, .code = callSite.code, .pc = callSite.insnOffset, .reservedLocals = callSite.reservedLocals };
     self.thread.stack.pushFrame(frame);
     return self.continueExecution();
 }
 
 /// Continue execution
-pub fn continueExecution(self: *Interpreter) InterpreterResult {
+pub fn continueExecution(self: *Interpreter) !InterpreterResult {
     // unwrap context
+    const thread = self.thread;
     var stack = self.thread.stack;
     var frame = stack.currentFrame();
     const code = frame.code;
@@ -36,7 +37,7 @@ pub fn continueExecution(self: *Interpreter) InterpreterResult {
     //
     // main execution loop
     //
-    while (frame.pc < codeLen) {
+    while (frame.pc < codeLen and thread.canExecute) {
         // get instruction as a mutable insn pointer,
         // mutable because we might set some runtime flags
         const insn = code.instructions.items[frame.pc];
@@ -45,6 +46,11 @@ pub fn continueExecution(self: *Interpreter) InterpreterResult {
             Insn.Opcode.NOOP => {},
 
             Insn.Opcode.GETLOCAL => {
+                if (!stack.hasLocal(insn.operandA.asU64)) {
+                    thread.throwException(try tide.oop.intrinsic.ThrowableObj.newUnmanaged(self.vm, .{ .message = try tide.oop.intrinsic.StringObj.newUnmanaged(self.vm, "Attempt to index invalid local") }));
+                    break;
+                }
+
                 stack.push(stack.getLocal(insn.operandA.asU64));
             },
 

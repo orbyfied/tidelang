@@ -95,7 +95,7 @@ pub fn popFrame(self: *Self) Frame {
     }
 }
 
-inline fn hasCapacityFor(self: *Self, amount: usize) bool {
+pub inline fn hasCapacityFor(self: *Self, amount: usize) bool {
     const p: usize = @bitCast(self.ptr);
     return p + amount < self.data.len;
 }
@@ -118,7 +118,7 @@ inline fn ensureHas(self: *Self, amount: usize) void {
     }
 }
 
-inline fn relativePointer(self: *Self) isize {
+pub inline fn relativePointer(self: *Self) isize {
     if (self.inFrame()) {
         const ssi: isize = @intCast(self.currentFrame().stackStartIndex);
         return self.ptr - ssi;
@@ -127,12 +127,16 @@ inline fn relativePointer(self: *Self) isize {
     }
 }
 
-inline fn isEmpty(self: *Self) bool {
+pub inline fn isEmpty(self: *Self) bool {
     return self.relativePointer() == -1;
 }
 
-inline fn has(self: *Self, amount: usize) bool {
+pub inline fn has(self: *Self, amount: usize) bool {
     return self.relativePointer() < amount - 1;
+}
+
+pub inline fn hasLocal(self: *Self, idx: usize) bool {
+    return idx < self.currentFrame().reservedLocals;
 }
 
 pub inline fn inFrame(self: *Self) bool {
@@ -158,20 +162,17 @@ pub inline fn setLocal(self: *Self, index: usize, val: Value) void {
 }
 
 pub inline fn push(self: *Self, val: Value) void {
-    self.ensureRemainingCapacity(1);
     self.ptr += 1;
     self.data[@intCast(self.ptr)] = val;
 }
 
 pub inline fn pop(self: *Self) Value {
-    self.ensureNotEmpty();
     const v = self.data[@intCast(self.ptr)];
     self.ptr -= 1;
     return v;
 }
 
 pub inline fn peek(self: *Self) Value {
-    self.ensureNotEmpty();
     return self.data[@intCast(self.ptr)];
 }
 
@@ -193,19 +194,16 @@ pub inline fn at(self: *Self, off: isize) Value {
 }
 
 pub inline fn dupT(self: *Self) void {
-    self.ensureHas(1);
     self.push(self.peek());
 }
 
 pub inline fn dupT2(self: *Self) void {
-    self.ensureRemainingCapacity(2);
     self.data[@intCast(self.ptr + 1)] = self.data[@intCast(self.ptr - 1)];
     self.data[@intCast(self.ptr + 2)] = self.data[@intCast(self.ptr)];
     self.ptr += 2;
 }
 
 pub inline fn swapT2(self: *Self) void {
-    self.ensureHas(2);
     const top = self.data[@intCast(self.ptr)];
     self.data[@intCast(self.ptr)] = self.data[@intCast(self.ptr - 1)];
     self.data[@intCast(self.ptr - 1)] = top;

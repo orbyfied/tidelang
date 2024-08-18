@@ -1,5 +1,9 @@
 const std = @import("std");
 
+const tide = @import("tidelang");
+const oop = tide.oop;
+const ObjectHeader = tide.oop.ObjectHeader;
+
 //
 // Submodules
 //
@@ -8,8 +12,6 @@ const std = @import("std");
 pub const ThreadStack = @import("./ThreadStack.zig");
 pub const Interpreter = @import("./Interpreter.zig");
 
-const tide = @import("tidelang");
-
 /// A VM thread
 pub const Thread = struct {
     vm: *VM,
@@ -17,16 +19,27 @@ pub const Thread = struct {
     /// The VM thread ID
     id: usize,
     /// The name of the thread
-    name: tide.oop.ObjRef(tide.String),
+    name: *oop.intrinsic.StringObj,
 
     /// The current stack
     stack: ThreadStack,
+    /// Whether the thread can currently execute
+    canExecute: bool,
+    /// The exception currently being handled
+    currentThrowable: ?*oop.intrinsic.ThrowableObj,
+
+    pub fn throwException(self: *Thread, t: *oop.intrinsic.ThrowableObj) void {
+        self.currentThrowable = t;
+        self.canExecute = false;
+    }
 };
 
 /// The global VM state
 pub const VM = struct {
     /// The system and VM resource allocator
     alloc: std.mem.Allocator,
+    /// The object allocator
+    objectAlloc: std.mem.Allocator,
     /// All registered modules
     modules: std.StringHashMap(*tide.runtime.Module) = .{},
     /// All registered classes
@@ -36,14 +49,22 @@ pub const VM = struct {
     /// The main thread
     mainThread: *Thread,
 
+    intrinsicClasses: oop.intrinsic.IntrinsicClasses,
+
     pub fn findClassOrNull(self: *VM, name: []const u8) ?*tide.oop.Class {
         return self.classes.get(name);
+    }
+
+    pub fn destroyObjectInternal(self: *VM, header: *ObjectHeader) void {
+        header.flags.alive = false;
+        self.objectAlloc.free(header);
     }
 };
 
 pub fn createVM(alloc: std.mem.Allocator) anyerror!*VM {
     var vm: *VM = try alloc.create(VM);
     vm.alloc = alloc;
+    vm.objectAlloc = alloc;
 
     // initialize runtime
     vm.classes = @TypeOf(vm.classes).init(alloc);

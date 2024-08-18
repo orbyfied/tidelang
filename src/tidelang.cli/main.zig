@@ -17,5 +17,8 @@ pub fn main() !void {
     const mainThread = vm.mainThread;
     var mainThreadInterpreter = tide.vm.Interpreter{ .vm = vm, .thread = mainThread };
     const mainFunction = tide.runtime.CallSite{ .code = &code, .insnOffset = 0, .reservedLocals = 2, .identifier = try tide.String.new(alloc, "main") };
-    _ = mainThreadInterpreter.beginExecution(&mainFunction);
+    _ = try mainThreadInterpreter.beginExecution(&mainFunction);
+    if (mainThread.currentThrowable) |thr| {
+        std.debug.print("thrown exception: {s}", .{thr.data.message.data.data});
+    }
 }
